@@ -43,6 +43,8 @@ class Module extends BaseModule
      * @var string $timeout
      */
     public $timeout = 3600;
+	
+	public $keepfor = '7 day';
 
     /**
      * You can setup favorite dump options presets foreach db.

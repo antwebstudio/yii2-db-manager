@@ -33,6 +33,7 @@ class DumpController extends Controller
             'gzip',
             'storage',
             'file',
+			'cleanup',
         ];
     }
     
@@ -43,6 +44,7 @@ class DumpController extends Controller
             'gz' => 'gzip',
             's' => 'storage',
             'f' => 'file',
+			'c' => 'cleanup',
         ];
     }
 
@@ -53,6 +55,11 @@ class DumpController extends Controller
     {
         return Yii::$app->getModule('db-manager');
     }
+	
+	protected function getManager() {		
+		$dbInfo = $this->getModule()->getDbInfo($this->db);
+		return $this->getModule()->createManager($dbInfo);
+	}
 
     /**
      * Create database dump.
@@ -77,7 +84,7 @@ class DumpController extends Controller
 				$uploadResult = true;
                 if ($this->storage) {
                     if (Yii::$app->has('backupStorage')) {
-						Console::output('Opening: '.$dumpPath);
+						Console::output('Uploading: '.$dumpPath);
 						
 						$storage = Yii::createObject([
 							'class' => 'creocoder\flysystem\LocalFilesystem',
@@ -87,6 +94,9 @@ class DumpController extends Controller
                         $uploadResult = Yii::$app->backupStorage->writeStream(StringHelper::basename($dumpPath), $storage->readStream(StringHelper::basename($dumpPath)));
                         //fclose($dumpText);
 						//Console::output(print_r($uploadResult, 1));
+						if ($uploadResult !== false && $this->cleanup) {
+							$this->cleanupRemoteExpired($dumpPath);
+						}
                     } else {
                         Console::output('Storage component is not configured.');
                     }
@@ -102,6 +112,37 @@ class DumpController extends Controller
             Console::output('Database configuration not found.');
         }
     }
+	
+	protected function cleanupRemoteExpired($dumpPath) {
+		$keepfor = $this->getModule()->keepfor;
+		$files = Yii::$app->backupStorage->listContents();
+		$timestamp = new \DateTime($keepfor.' ago');
+		
+		//throw new \Exception(StringHelper::basename($dumpPath).print_r($files,1));
+		
+		foreach ($files as $file) {
+			if ($this->getTimestampFromFilename($file['filename']) < $timestamp) {
+				Yii::$app->backupStorage->delete($file['path']);
+				Console::output('Deleted old backup file: '.$file['filename']);
+			}
+		}
+	}
+	
+	protected function getTimestampFromFilename($filename) {
+		$first = strrpos($filename, '_');
+		// Start from second last "_"
+		$start = strrpos($filename, '_', 0 - (strlen($filename) - $first) - 1) + 1;
+		// End at last "."
+		$end = strrpos($filename, '.');
+		
+		list($date, $time) = explode('_', substr($filename, $start, $end - $start));
+		$time = str_replace('-', ':', $time);
+		
+		$timestamp = new \DateTime($date.' '.$time);
+		//throw new \Exception($timestamp->format('Y-m-d H:i:s'));
+		
+		return $timestamp;
+	}
 
     /**
      * Restore database dump.
